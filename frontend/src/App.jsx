@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import './App.css';
 
+// Backend API URL
+const API_BASE_URL = 'http://localhost:8000';
+
 function App() {
   const [formData, setFormData] = useState({
     full_name: '',
@@ -28,12 +31,20 @@ function App() {
     setMessage('');
 
     try {
-      const response = await axios.post('/transactions/create', {
+      console.log('Sending payment data:', formData);
+      
+      const response = await axios.post(`${API_BASE_URL}/transactions/create`, {
         full_name: formData.full_name,
         email: formData.email,
         phone: formData.phone,
         amount: parseFloat(formData.amount)
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+        }
       });
+
+      console.log('Payment response:', response.data);
 
       setMessageType('success');
       setMessage(`Payment successful! Transaction Reference: ${response.data.reference}`);
@@ -46,8 +57,19 @@ function App() {
         amount: ''
       });
     } catch (error) {
+      console.error('Payment error:', error);
       setMessageType('error');
-      setMessage(error.response?.data?.detail || 'Payment failed. Please try again.');
+      
+      if (error.response) {
+        // Server responded with error
+        setMessage(`Payment failed: ${error.response.data?.detail || error.response.statusText}`);
+      } else if (error.request) {
+        // Network error - backend not reachable
+        setMessage('Cannot connect to payment server. Please check if the backend is running on http://localhost:8000');
+      } else {
+        // Other error
+        setMessage('Payment failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -156,6 +178,12 @@ function App() {
         <div className="text-center mt-4">
           <small className="text-muted">
             🔒 Your payment information is secure and encrypted
+          </small>
+        </div>
+        
+        <div className="text-center mt-2">
+          <small className="text-muted">
+            Backend: {API_BASE_URL}
           </small>
         </div>
       </div>
