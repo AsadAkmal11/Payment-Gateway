@@ -1,19 +1,12 @@
 from fastapi import FastAPI
-from jose import JWTError,jwt
-from pydantic import BaseModel
-from datetime import datetime, timedelta
-SECRET_KEY="ni-batao-ga"
-ALGORITHM = "HS256"
+from app.database import Base, engine
+import app.model 
 
-app=FastAPI(title="Gen-Z Payment")
-def loginRequest(BaseModel):
-    username: str   
-    passsword:str
+app = FastAPI(title="Gen-Z Payment Gateway")
 
-def createAccessToken(data: dict , expires_delta: timedelta | None= None):
-    to_encode= data.copy()
-    
+# Auto-create tables
+Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 def home():
-    return {"message":"Backend running!"}
+    return {"message": "Payment Gateway Backend Running & Tables Synced!"}
