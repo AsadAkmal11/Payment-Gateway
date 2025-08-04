@@ -468,7 +468,7 @@ function App() {
     <div className="payment-container">
       <div className="payment-card">
         <div className="payment-header">
-          <h1>🔒 Secure Payment Gateway</h1>
+          <h1>🔒 GenZ Payment Gateway</h1>
           <p>Your payment information is encrypted and secure</p>
         </div>
 
@@ -488,17 +488,17 @@ function App() {
         {step === 2 && renderPaymentMethod()}
         {step === 3 && renderCardDetails()}
 
-        <div className="text-center mt-4">
+        {/* <div className="text-center mt-4">
           <small className="text-muted">
             🔒 PCI DSS Compliant • 256-bit SSL Encryption • Tokenized Payments
           </small>
-        </div>
+        </div> */}
         
-        <div className="text-center mt-2">
+        {/* <div className="text-center mt-2">
           <small className="text-muted">
             Backend: {API_BASE_URL}
           </small>
-        </div>
+        </div> */}
       </div>
     </div>
   );
