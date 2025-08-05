@@ -10,6 +10,7 @@ class PaymentMethod(enum.Enum):
     MASTERCARD = "mastercard"
     AMEX = "amex"
     DISCOVER = "discover"
+    STRIPE = "stripe"  # Added Stripe as a payment method
 
 class TransactionStatus(enum.Enum):
     PENDING = "pending"
@@ -17,6 +18,10 @@ class TransactionStatus(enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     DECLINED = "declined"
+    REQUIRES_PAYMENT_METHOD = "requires_payment_method"
+    REQUIRES_CONFIRMATION = "requires_confirmation"
+    REQUIRES_ACTION = "requires_action"
+    CANCELED = "canceled"
 
 class PaymentToken(Base):
     __tablename__ = "payment_tokens"
@@ -52,6 +57,13 @@ class Transaction(Base):
     user_agent = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Stripe-specific fields
+    stripe_payment_intent_id = Column(String(255), nullable=True, unique=True)
+    stripe_client_secret = Column(String(255), nullable=True)
+    stripe_payment_method_id = Column(String(255), nullable=True)
+    stripe_charge_id = Column(String(255), nullable=True)
+    stripe_refund_id = Column(String(255), nullable=True)
     
     # Relationship
     payment_token = relationship("PaymentToken", backref="transactions")
