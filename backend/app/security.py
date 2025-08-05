@@ -163,6 +163,7 @@ class PCISecurePaymentGateway:
         """
         Create a secure payment token (PCI-compliant)
         This token contains NO sensitive card data
+        In production, use a PCI-compliant vault/tokenization service.
         """
         # Only store non-sensitive data in the token
         token_data = {
@@ -175,14 +176,9 @@ class PCISecurePaymentGateway:
             "created_at": datetime.utcnow().isoformat(),
             "vault_reference": f"vault_{secrets.token_hex(16)}"  # Reference to external vault
         }
-        
-        # In production, this would be stored in a PCI-compliant vault
-        # For demo purposes, we'll create a secure hash
-        token_hash = hashlib.sha256(
-            json.dumps(token_data, sort_keys=True).encode() + self.security_salt.encode()
-        ).hexdigest()
-        
-        return token_hash
+        # In production, store in PCI-compliant vault and return reference
+        # Here, just return a placeholder token for demonstration
+        return token_data["token_id"]
 
     def generate_hmac_signature(self, data: str, timestamp: str) -> str:
         """Generate HMAC signature for request verification"""

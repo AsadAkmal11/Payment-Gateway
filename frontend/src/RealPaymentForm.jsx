@@ -1,107 +1,105 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import axios from 'axios';
 import './styles/real-payment.css';
 
-// Backend API URL
 const API_BASE_URL = 'http://localhost:8000';
-
-// Load Stripe (replace with your publishable key)
-const stripePromise = loadStripe('pk_test_your_publishable_key_here');
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_actual_publishable_key_here');
 
 const RealPaymentForm = ({ amount, onSuccess, onError }) => {
   const stripe = useStripe();
   const elements = useElements();
   const [loading, setLoading] = useState(false);
-  const [clientSecret, setClientSecret] = useState('');
   const [userInfo, setUserInfo] = useState({
     full_name: '',
     email: '',
     phone: ''
   });
+  const [userId, setUserId] = useState(null);
+  const [step, setStep] = useState(1); // 1: user info, 2: card info
 
   const handleUserInfoChange = (field, value) => {
-    setUserInfo(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setUserInfo(prev => ({ ...prev, [field]: value }));
   };
 
-  const createPaymentIntent = async () => {
+  // Step 1: Save user info to backend
+  const handleContinue = async (e) => {
+    e.preventDefault();
+    setLoading(true);
     try {
-      // Validate user information
       if (!userInfo.full_name || !userInfo.email || !userInfo.phone) {
         onError('Please fill in all required fields');
+        setLoading(false);
         return;
       }
+      // This part of the logic is removed as per the edit hint.
+      // The user info is now directly passed to the payment intent.
+      setStep(2);
+    } catch (error) {
+      onError(error.response?.data?.detail || 'Failed to save user info');
+    }
+    setLoading(false);
+  };
 
-      const response = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
-        amount: Math.round(amount * 100), // Convert to cents
+  // Step 2: Handle payment
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    if (!stripe || !elements) {
+      setLoading(false);
+      return;
+    }
+    try {
+      // 1. Create payment intent on backend
+      const intentRes = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
+        amount: Math.round(amount * 100),
         currency: 'usd',
         full_name: userInfo.full_name,
         email: userInfo.email,
         phone: userInfo.phone
       });
-
-      if (response.data.success) {
-        setClientSecret(response.data.client_secret);
-      } else {
-        onError('Failed to initialize payment');
-      }
-    } catch (error) {
-      console.error('Error creating payment intent:', error);
-      onError(error.response?.data?.detail || 'Failed to initialize payment');
-    }
-  };
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-
-    if (!stripe || !elements) {
-      return;
-    }
-
-    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: {
-        card: elements.getElement(CardElement),
+      const { client_secret, payment_intent_id } = intentRes.data;
+      // 2. Create payment method with Stripe.js
+      const cardElement = elements.getElement(CardElement);
+      const { error: pmError, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: cardElement,
         billing_details: {
           name: userInfo.full_name,
           email: userInfo.email,
           phone: userInfo.phone
         }
+      });
+      if (pmError) {
+        onError(pmError.message);
+        setLoading(false);
+        return;
       }
-    });
-
-    if (error) {
-      console.error('Payment failed:', error);
-      onError(error.message);
-      setLoading(false);
-    } else {
-      if (paymentIntent.status === 'succeeded') {
-        // Get transaction details from our backend
-        try {
-          const response = await axios.get(`${API_BASE_URL}/stripe/transactions/${paymentIntent.metadata.transaction_id || 'unknown'}`);
-          
-          onSuccess({
-            transaction_id: response.data.transaction?.transaction_id || paymentIntent.id,
-            amount: response.data.transaction?.amount || amount,
-            status: response.data.transaction?.status || 'completed',
-            stripe_payment_intent_id: paymentIntent.id
-          });
-        } catch (error) {
-          console.error('Error getting transaction details:', error);
-          onSuccess({
-            transaction_id: paymentIntent.id,
-            amount: amount,
-            status: 'completed',
-            stripe_payment_intent_id: paymentIntent.id
-          });
-        }
+      // 3. Confirm card payment with Stripe.js
+      const { error: confirmError, paymentIntent } = await stripe.confirmCardPayment(client_secret, {
+        payment_method: paymentMethod.id
+      });
+      if (confirmError) {
+        onError(confirmError.message);
+        setLoading(false);
+        return;
       }
-      setLoading(false);
+      if (paymentIntent.status !== 'succeeded') {
+        onError('Payment was not successful.');
+        setLoading(false);
+        return;
+      }
+      // 4. Notify backend to update transaction status
+      await axios.post(`${API_BASE_URL}/stripe/confirm-payment`, {
+        payment_intent_id,
+        payment_method_id: paymentMethod.id
+      });
+      onSuccess({ status: 'paid', message: 'Payment successful!' });
+    } catch (error) {
+      onError(error.response?.data?.detail || 'Payment failed.');
     }
+    setLoading(false);
   };
 
   const cardElementOptions = {
@@ -109,80 +107,77 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
       base: {
         fontSize: '16px',
         color: '#424770',
-        '::placeholder': {
-          color: '#aab7c4',
-        },
+        '::placeholder': { color: '#aab7c4' },
       },
-      invalid: {
-        color: '#9e2146',
-      },
+      invalid: { color: '#9e2146' },
     },
   };
 
   return (
-    <form onSubmit={handleSubmit} className="real-payment-form">
-      {/* User Information Fields */}
-      <div className="mb-3">
-        <label className="form-label">Full Name *</label>
-        <input
-          type="text"
-          className="form-control"
-          value={userInfo.full_name}
-          onChange={(e) => handleUserInfoChange('full_name', e.target.value)}
-          required
-        />
-      </div>
-      
-      <div className="mb-3">
-        <label className="form-label">Email *</label>
-        <input
-          type="email"
-          className="form-control"
-          value={userInfo.email}
-          onChange={(e) => handleUserInfoChange('email', e.target.value)}
-          required
-        />
-      </div>
-      
-      <div className="mb-3">
-        <label className="form-label">Phone *</label>
-        <input
-          type="tel"
-          className="form-control"
-          value={userInfo.phone}
-          onChange={(e) => handleUserInfoChange('phone', e.target.value)}
-          required
-        />
-      </div>
-
-      <div className="mb-3">
-        <label className="form-label">Card Details</label>
-        <div className="card-element-container">
-          <CardElement options={cardElementOptions} />
-        </div>
-      </div>
-      
-      <button
-        type="submit"
-        disabled={!stripe || loading || !clientSecret}
-        className="btn btn-pay text-white w-100"
-        onClick={createPaymentIntent}
-      >
-        {loading ? (
-          <>
-            <span className="loading-spinner me-2"></span>
-            Processing Payment...
-          </>
-        ) : (
-          `Pay $${amount.toFixed(2)}`
-        )}
-      </button>
-      
-      <div className="mt-3">
-        <small className="text-muted">
-          💳 This is a real payment using Stripe. Use test card: 4242 4242 4242 4242
-        </small>
-      </div>
+    <form onSubmit={step === 1 ? handleContinue : handleSubmit} className="real-payment-form">
+      {step === 1 && (
+        <>
+          <div className="mb-3">
+            <label className="form-label">Full Name *</label>
+            <input
+              type="text"
+              className="form-control"
+              value={userInfo.full_name}
+              onChange={(e) => handleUserInfoChange('full_name', e.target.value)}
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Email *</label>
+            <input
+              type="email"
+              className="form-control"
+              value={userInfo.email}
+              onChange={(e) => handleUserInfoChange('email', e.target.value)}
+              required
+            />
+          </div>
+          <div className="mb-3">
+            <label className="form-label">Phone *</label>
+            <input
+              type="tel"
+              className="form-control"
+              value={userInfo.phone}
+              onChange={(e) => handleUserInfoChange('phone', e.target.value)}
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="btn btn-primary w-100"
+            disabled={loading}
+          >
+            {loading ? 'Saving...' : 'Continue'}
+          </button>
+        </>
+      )}
+      {step === 2 && (
+        <>
+          <div className="mb-3">
+            <label className="form-label">Card Details</label>
+            <div className="card-element-container">
+              <CardElement options={cardElementOptions} />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="btn btn-pay text-white w-100"
+            disabled={loading}
+          >
+            {loading ? 'Processing Payment...' : `Pay $${amount.toFixed(2)}`}
+          </button>
+          <div className="mt-3">
+            <small className="text-muted">
+              💳 This is a real payment using Stripe. Use test card: 4242 4242 4242 4242
+            </small>
+          </div>
+        </>
+      )}
     </form>
   );
 };

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine
 from app.stripe_routes import router as stripe_router
+from app.user_routes import router as user_router
 
 app = FastAPI(title="Gen-Z Payment Gateway")
 
@@ -14,8 +15,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Stripe routes
+# Include Stripe and User routes
 app.include_router(stripe_router)
+app.include_router(user_router)
 
 # Auto-create tables (temporarily commented for testing)
 # Base.metadata.create_all(bind=engine)

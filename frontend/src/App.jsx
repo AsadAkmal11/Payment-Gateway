@@ -1,9 +1,97 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import './styles/main.css';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // Backend API URL
 const API_BASE_URL = 'http://localhost:8000';
+
+function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep }) {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      // 1. Create payment intent
+      const intentRes = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
+        amount: Math.round(formData.amount * 100),
+        currency: 'usd',
+        full_name: formData.full_name,
+        email: formData.email,
+        phone: formData.phone
+      });
+      const { client_secret, payment_intent_id } = intentRes.data;
+
+      // 2. Create payment method with Stripe.js
+      const cardElement = elements.getElement(CardElement);
+      const { error: pmError, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: cardElement,
+        billing_details: {
+          name: formData.full_name,
+          email: formData.email,
+          phone: formData.phone
+        }
+      });
+      if (pmError) {
+        setMessageType('error');
+        setMessage(pmError.message);
+        setLoading(false);
+        return;
+      }
+
+      // 3. Confirm card payment with Stripe.js
+      const { error: confirmError, paymentIntent } = await stripe.confirmCardPayment(client_secret, {
+        payment_method: paymentMethod.id
+      });
+      if (confirmError) {
+        setMessageType('error');
+        setMessage(confirmError.message);
+        setLoading(false);
+        return;
+      }
+      if (paymentIntent.status !== 'succeeded') {
+        setMessageType('error');
+        setMessage('Payment was not successful.');
+        setLoading(false);
+        return;
+      }
+
+      // 4. Notify backend to update transaction status
+      await axios.post(`${API_BASE_URL}/stripe/confirm-payment`, {
+        payment_intent_id,
+        payment_method_id: paymentMethod.id
+      });
+      setMessageType('success');
+      setMessage('Payment successful!');
+      setFormData({ full_name: '', email: '', phone: '', amount: '' });
+      setPaymentData({ payment_method: 'visa', card_number: '', expiry_month: '', expiry_year: '', cvv: '', cardholder_name: '' });
+      setStep(1);
+    } catch (error) {
+      setMessageType('error');
+      setMessage(error.response?.data?.detail || 'Payment failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      {/* Render CardElement and other form fields as needed */}
+      <div className="mb-3">
+        <label className="form-label">Card Details</label>
+        <CardElement />
+      </div>
+      <button type="submit" className="btn btn-pay text-white" disabled={setLoading}>
+        PAY NOW
+      </button>
+    </form>
+  );
+}
 
 function App() {
   const [step, setStep] = useState(1); // 1: Basic info, 2: Payment method, 3: Card details
@@ -176,393 +264,7 @@ function App() {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-
-    try {
-      console.log('🚀 Starting payment processing...');
-      
-      const paymentPayload = {
-        full_name: formData.full_name,
-        email: formData.email,
-        phone: formData.phone,
-        amount: parseFloat(formData.amount),
-        currency: "USD",
-        payment_method: paymentData.payment_method,
-        card_details: {
-          card_number: paymentData.card_number,
-          expiry_month: paymentData.expiry_month,
-          expiry_year: paymentData.expiry_year,
-          cvv: paymentData.cvv,
-          cardholder_name: paymentData.cardholder_name
-        }
-      };
-      
-      console.log('📊 Payment data:', paymentPayload);
-      
-      // Quick client-side validation
-      if (!paymentData.card_number || !paymentData.expiry_month || !paymentData.expiry_year || !paymentData.cvv) {
-        setMessage('Please fill in all card details');
-        setMessageType('error');
-        setLoading(false);
-        return;
-      }
-      
-      console.log('✅ Basic validation passed, attempting backend connection...');
-      
-      // Try to connect to backend, but don't fail if it's not available
-      let backendAvailable = false;
-      try {
-        await axios.get(`${API_BASE_URL}/health`, { timeout: 3000 });
-        backendAvailable = true;
-        console.log('✅ Backend is available');
-      } catch (error) {
-        console.log('⚠️ Backend not available, proceeding with demo mode');
-        backendAvailable = false;
-      }
-      
-      if (backendAvailable) {
-        // Try backend payment processing
-        try {
-          const response = await axios.post(`${API_BASE_URL}/transactions/create`, paymentPayload, {
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            timeout: 10000 // 10 second timeout
-          });
-
-          console.log('Payment response:', response.data);
-
-          setMessageType('success');
-          setMessage(`Payment successful! Transaction ID: ${response.data.transaction_id}`);
-        } catch (error) {
-          console.log('Backend payment failed, switching to demo mode:', error.message);
-          // Fall back to demo mode
-          setMessageType('success');
-          setMessage(`Demo Payment Successful! (Backend error) Transaction ID: DEMO-${Date.now()}`);
-        }
-      } else {
-        // Demo mode
-        setMessageType('success');
-        setMessage(`Demo Payment Successful! (Backend not available) Transaction ID: DEMO-${Date.now()}`);
-      }
-      
-      // Reset form
-      setFormData({
-        full_name: '',
-        email: '',
-        phone: '',
-        amount: ''
-      });
-      setPaymentData({
-        payment_method: 'visa',
-        card_number: '',
-        expiry_month: '',
-        expiry_year: '',
-        cvv: '',
-        cardholder_name: ''
-      });
-      setStep(1);
-      
-    } catch (error) {
-      console.error('Payment error:', error);
-      setMessageType('error');
-      setMessage('Payment failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderBasicInfo = () => (
-    <div className="payment-step">
-      <h3>Personal Information</h3>
-      <div className="mb-3">
-        <label htmlFor="full_name" className="form-label">Full Name</label>
-        <input
-          type="text"
-          className="form-control"
-          id="full_name"
-          name="full_name"
-          value={formData.full_name}
-          onChange={handleInputChange}
-          required
-          placeholder="Enter your full name"
-        />
-      </div>
-
-      <div className="mb-3">
-        <label htmlFor="email" className="form-label">Email Address</label>
-        <input
-          type="email"
-          className="form-control"
-          id="email"
-          name="email"
-          value={formData.email}
-          onChange={handleInputChange}
-          required
-          placeholder="Enter your email"
-        />
-      </div>
-
-      <div className="mb-3">
-        <label htmlFor="phone" className="form-label">Phone Number</label>
-        <input
-          type="tel"
-          className="form-control"
-          id="phone"
-          name="phone"
-          value={formData.phone}
-          onChange={handleInputChange}
-          required
-          placeholder="Enter your phone number"
-        />
-      </div>
-
-      <div className="mb-4">
-        <label htmlFor="amount" className="form-label">Payment Amount</label>
-        <div className="input-group">
-          <span className="input-group-text">$</span>
-          <input
-            type="number"
-            className="form-control"
-            id="amount"
-            name="amount"
-            value={formData.amount}
-            onChange={handleInputChange}
-            required
-            min="0.01"
-            step="0.01"
-            placeholder="0.00"
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        className="btn btn-primary w-100"
-        onClick={handleNextStep}
-      >
-        Continue to Payment Method
-      </button>
-    </div>
-  );
-
-  const renderPaymentMethod = () => (
-    <div className="payment-step">
-      <h3>Select Payment Method</h3>
-      <div className="payment-methods">
-        <div className="payment-method-option">
-          <input
-            type="radio"
-            id="visa"
-            name="payment_method"
-            value="visa"
-            checked={paymentData.payment_method === 'visa'}
-            onChange={handlePaymentInputChange}
-          />
-          <label htmlFor="visa" className="payment-method-label">
-            <span className="card-icon">💳</span>
-            <span>Visa</span>
-          </label>
-        </div>
-        
-        <div className="payment-method-option">
-          <input
-            type="radio"
-            id="mastercard"
-            name="payment_method"
-            value="mastercard"
-            checked={paymentData.payment_method === 'mastercard'}
-            onChange={handlePaymentInputChange}
-          />
-          <label htmlFor="mastercard" className="payment-method-label">
-            <span className="card-icon">💳</span>
-            <span>Mastercard</span>
-          </label>
-        </div>
-        
-        <div className="payment-method-option">
-          <input
-            type="radio"
-            id="amex"
-            name="payment_method"
-            value="amex"
-            checked={paymentData.payment_method === 'amex'}
-            onChange={handlePaymentInputChange}
-          />
-          <label htmlFor="amex" className="payment-method-label">
-            <span className="card-icon">💳</span>
-            <span>American Express</span>
-          </label>
-        </div>
-        
-        <div className="payment-method-option">
-          <input
-            type="radio"
-            id="discover"
-            name="payment_method"
-            value="discover"
-            checked={paymentData.payment_method === 'discover'}
-            onChange={handlePaymentInputChange}
-          />
-          <label htmlFor="discover" className="payment-method-label">
-            <span className="card-icon">💳</span>
-            <span>Discover</span>
-          </label>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <button
-          type="button"
-          className="btn btn-secondary me-2"
-          onClick={() => setStep(1)}
-        >
-          Back
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={handleNextStep}
-        >
-          Continue to Card Details
-        </button>
-      </div>
-    </div>
-  );
-
-  const renderCardDetails = () => (
-    <div className="payment-step">
-      <h3>Card Details</h3>
-      <div className="card-preview">
-        <div className="card-front">
-          <div className="card-type">{paymentData.payment_method.toUpperCase()}</div>
-          <div className="card-number">
-            {paymentData.card_number ? 
-              `**** **** **** ${paymentData.card_number.slice(-4)}` : 
-              '**** **** **** ****'
-            }
-          </div>
-          <div className="card-details">
-            <span className="cardholder">{paymentData.cardholder_name || 'CARDHOLDER NAME'}</span>
-            <span className="expiry">{paymentData.expiry_month || 'MM'}/{paymentData.expiry_year || 'YY'}</span>
-          </div>
-        </div>
-      </div>
-
-      <form onSubmit={handleSubmit}>
-        <div className="mb-3">
-          <label htmlFor="card_number" className="form-label">Card Number</label>
-          <input
-            type="text"
-            className="form-control"
-            id="card_number"
-            name="card_number"
-            value={paymentData.card_number}
-            onChange={handlePaymentInputChange}
-            required
-            placeholder="1234 5678 9012 3456"
-            maxLength="19"
-          />
-        </div>
-
-        <div className="row">
-          <div className="col-md-6 mb-3">
-            <label htmlFor="expiry_month" className="form-label">Expiry Month</label>
-            <select
-              className="form-control"
-              id="expiry_month"
-              name="expiry_month"
-              value={paymentData.expiry_month}
-              onChange={handlePaymentInputChange}
-              required
-            >
-              <option value="">MM</option>
-              {Array.from({length: 12}, (_, i) => i + 1).map(month => (
-                <option key={month} value={month.toString().padStart(2, '0')}>
-                  {month.toString().padStart(2, '0')}
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="col-md-6 mb-3">
-            <label htmlFor="expiry_year" className="form-label">Expiry Year</label>
-            <select
-              className="form-control"
-              id="expiry_year"
-              name="expiry_year"
-              value={paymentData.expiry_year}
-              onChange={handlePaymentInputChange}
-              required
-            >
-              <option value="">YYYY</option>
-              {Array.from({length: 10}, (_, i) => new Date().getFullYear() + i).map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="row">
-          <div className="col-md-6 mb-3">
-            <label htmlFor="cvv" className="form-label">CVV</label>
-            <input
-              type="text"
-              className="form-control"
-              id="cvv"
-              name="cvv"
-              value={paymentData.cvv}
-              onChange={handlePaymentInputChange}
-              required
-              placeholder={paymentData.payment_method === 'amex' ? '1234' : '123'}
-              maxLength={paymentData.payment_method === 'amex' ? 4 : 3}
-            />
-          </div>
-          
-          <div className="col-md-6 mb-3">
-            <label htmlFor="cardholder_name" className="form-label">Cardholder Name</label>
-            <input
-              type="text"
-              className="form-control"
-              id="cardholder_name"
-              name="cardholder_name"
-              value={paymentData.cardholder_name}
-              onChange={handlePaymentInputChange}
-              required
-              placeholder="JOHN DOE"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <button
-            type="button"
-            className="btn btn-secondary me-2"
-            onClick={() => setStep(2)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="btn btn-pay text-white"
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <span className="loading-spinner me-2"></span>
-                Processing Payment...
-              </>
-            ) : (
-              'Pay Now'
-            )}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+  const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_your_actual_publishable_key_here');
 
   return (
     <div className="payment-container">
@@ -584,9 +286,195 @@ function App() {
           <div className={`progress-step ${step >= 3 ? 'active' : ''}`}>3. Card Details</div>
         </div>
 
-        {step === 1 && renderBasicInfo()}
-        {step === 2 && renderPaymentMethod()}
-        {step === 3 && renderCardDetails()}
+        {step === 1 && (
+          <div className="payment-step">
+            <h3>Personal Information</h3>
+            <div className="mb-3">
+              <label htmlFor="full_name" className="form-label">Full Name</label>
+              <input
+                type="text"
+                className="form-control"
+                id="full_name"
+                name="full_name"
+                value={formData.full_name}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your full name"
+              />
+            </div>
+
+            <div className="mb-3">
+              <label htmlFor="email" className="form-label">Email Address</label>
+              <input
+                type="email"
+                className="form-control"
+                id="email"
+                name="email"
+                value={formData.email}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your email"
+              />
+            </div>
+
+            <div className="mb-3">
+              <label htmlFor="phone" className="form-label">Phone Number</label>
+              <input
+                type="tel"
+                className="form-control"
+                id="phone"
+                name="phone"
+                value={formData.phone}
+                onChange={handleInputChange}
+                required
+                placeholder="Enter your phone number"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label htmlFor="amount" className="form-label">Payment Amount</label>
+              <div className="input-group">
+                <span className="input-group-text">$</span>
+                <input
+                  type="number"
+                  className="form-control"
+                  id="amount"
+                  name="amount"
+                  value={formData.amount}
+                  onChange={handleInputChange}
+                  required
+                  min="0.01"
+                  step="0.01"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-primary w-100"
+              onClick={handleNextStep}
+            >
+              Continue to Payment Method
+            </button>
+          </div>
+        )}
+        {step === 2 && (
+          <div className="payment-step">
+            <h3>Select Payment Method</h3>
+            <div className="payment-methods">
+              <div className="payment-method-option">
+                <input
+                  type="radio"
+                  id="visa"
+                  name="payment_method"
+                  value="visa"
+                  checked={paymentData.payment_method === 'visa'}
+                  onChange={handlePaymentInputChange}
+                />
+                <label htmlFor="visa" className="payment-method-label">
+                  <span className="card-icon">💳</span>
+                  <span>Visa</span>
+                </label>
+              </div>
+              
+              <div className="payment-method-option">
+                <input
+                  type="radio"
+                  id="mastercard"
+                  name="payment_method"
+                  value="mastercard"
+                  checked={paymentData.payment_method === 'mastercard'}
+                  onChange={handlePaymentInputChange}
+                />
+                <label htmlFor="mastercard" className="payment-method-label">
+                  <span className="card-icon">💳</span>
+                  <span>Mastercard</span>
+                </label>
+              </div>
+              
+              <div className="payment-method-option">
+                <input
+                  type="radio"
+                  id="amex"
+                  name="payment_method"
+                  value="amex"
+                  checked={paymentData.payment_method === 'amex'}
+                  onChange={handlePaymentInputChange}
+                />
+                <label htmlFor="amex" className="payment-method-label">
+                  <span className="card-icon">💳</span>
+                  <span>American Express</span>
+                </label>
+              </div>
+              
+              <div className="payment-method-option">
+                <input
+                  type="radio"
+                  id="discover"
+                  name="payment_method"
+                  value="discover"
+                  checked={paymentData.payment_method === 'discover'}
+                  onChange={handlePaymentInputChange}
+                />
+                <label htmlFor="discover" className="payment-method-label">
+                  <span className="card-icon">💳</span>
+                  <span>Discover</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                className="btn btn-secondary me-2"
+                onClick={() => setStep(1)}
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleNextStep}
+              >
+                Continue to Card Details
+              </button>
+            </div>
+          </div>
+        )}
+        {step === 3 && (
+          <div className="payment-step">
+            <h3>Card Details</h3>
+            <div className="card-preview">
+              <div className="card-front">
+                <div className="card-type">{paymentData.payment_method.toUpperCase()}</div>
+                <div className="card-number">
+                  {paymentData.card_number ? 
+                    `**** **** **** ${paymentData.card_number.slice(-4)}` : 
+                    '**** **** **** ****'
+                  }
+                </div>
+                <div className="card-details">
+                  <span className="cardholder">{paymentData.cardholder_name || 'CARDHOLDER NAME'}</span>
+                  <span className="expiry">{paymentData.expiry_month || 'MM'}/{paymentData.expiry_year || 'YY'}</span>
+                </div>
+              </div>
+            </div>
+
+            <Elements stripe={stripePromise}>
+              <PaymentForm
+                formData={formData}
+                setFormData={setFormData}
+                paymentData={paymentData}
+                setPaymentData={setPaymentData}
+                setMessage={setMessage}
+                setMessageType={setMessageType}
+                setLoading={setLoading}
+                setStep={setStep}
+              />
+            </Elements>
+          </div>
+        )}
 
         {/* <div className="text-center mt-4">
           <small className="text-muted">
