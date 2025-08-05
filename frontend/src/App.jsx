@@ -2,14 +2,155 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import './styles/main.css';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { Elements, CardElement, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 // Backend API URL
 const API_BASE_URL = 'http://localhost:8000';
 
+// Alternative PaymentForm using individual elements (commented out for now)
+/*
+function IndividualCardPaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep }) {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const cardElementOptions = {
+    style: {
+      base: {
+        fontSize: '16px',
+        color: '#424770',
+        '::placeholder': {
+          color: '#aab7c4',
+        },
+      },
+      invalid: {
+        color: '#9e2146',
+      },
+    },
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+    try {
+      // 1. Create payment intent
+      const intentRes = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
+        amount: Math.round(formData.amount * 100),
+        currency: 'usd',
+        full_name: formData.full_name,
+        email: formData.email,
+        phone: formData.phone
+      });
+      const { client_secret, payment_intent_id } = intentRes.data;
+
+      // 2. Create payment method with individual elements
+      const { error: pmError, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: {
+          number: elements.getElement(CardNumberElement),
+          exp_month: elements.getElement(CardExpiryElement),
+          cvc: elements.getElement(CardCvcElement),
+        },
+        billing_details: {
+          name: formData.full_name,
+          email: formData.email,
+          phone: formData.phone
+        }
+      });
+      
+      if (pmError) {
+        setMessageType('error');
+        setMessage(pmError.message);
+        setLoading(false);
+        return;
+      }
+
+      // 3. Confirm card payment with Stripe.js
+      const { error: confirmError, paymentIntent } = await stripe.confirmCardPayment(client_secret, {
+        payment_method: paymentMethod.id
+      });
+      if (confirmError) {
+        setMessageType('error');
+        setMessage(confirmError.message);
+        setLoading(false);
+        return;
+      }
+      if (paymentIntent.status !== 'succeeded') {
+        setMessageType('error');
+        setMessage('Payment was not successful.');
+        setLoading(false);
+        return;
+      }
+
+      // 4. Notify backend to update transaction status
+      await axios.post(`${API_BASE_URL}/stripe/confirm-payment`, {
+        payment_intent_id,
+        payment_method_id: paymentMethod.id
+      });
+      setMessageType('success');
+      setMessage('Payment successful!');
+      setFormData({ full_name: '', email: '', phone: '', amount: '' });
+      setPaymentData({ payment_method: 'visa', card_number: '', expiry_month: '', expiry_year: '', cvv: '', cardholder_name: '' });
+      setStep(1);
+    } catch (error) {
+      setMessageType('error');
+      setMessage(error.response?.data?.detail || 'Payment failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <div className="mb-3">
+        <label className="form-label">Card Number</label>
+        <CardNumberElement options={cardElementOptions} />
+      </div>
+      <div className="row">
+        <div className="col-md-6">
+          <div className="mb-3">
+            <label className="form-label">Expiry Date</label>
+            <CardExpiryElement options={cardElementOptions} />
+          </div>
+        </div>
+        <div className="col-md-6">
+          <div className="mb-3">
+            <label className="form-label">CVC</label>
+            <CardCvcElement options={cardElementOptions} />
+          </div>
+        </div>
+      </div>
+      <button type="submit" className="btn btn-pay text-white" disabled={setLoading}>
+        PAY NOW
+      </button>
+    </form>
+  );
+}
+*/
+
 function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep }) {
   const stripe = useStripe();
   const elements = useElements();
+
+  // Custom options for CardElement
+  const cardElementOptions = {
+    style: {
+      base: {
+        fontSize: '16px',
+        color: '#424770',
+        '::placeholder': {
+          color: '#aab7c4',
+        },
+        ':-webkit-autofill': {
+          color: '#fce883',
+        },
+      },
+      invalid: {
+        color: '#9e2146',
+      },
+    },
+    hidePostalCode: true, // This makes postal code optional
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -81,10 +222,10 @@ function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMe
 
   return (
     <form onSubmit={handleSubmit}>
-      {/* Render CardElement and other form fields as needed */}
+      {/* Render CardElement with custom options */}
       <div className="mb-3">
         <label className="form-label">Card Details</label>
-        <CardElement />
+        <CardElement options={cardElementOptions} />
       </div>
       <button type="submit" className="btn btn-pay text-white" disabled={setLoading}>
         PAY NOW

@@ -7,6 +7,14 @@ load_dotenv()
 
 # Initialize Stripe with secret key
 stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
+PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY')
+# Debug: Check if the key is loaded
+print(f"DEBUG: STRIPE_SECRET_KEY loaded: {'Yes' if stripe.api_key else 'No'}")
+print(f"DEBUG: STRIPE_PUBLISHABLE_KEY loaded: {'Yes' if PUBLISHABLE_KEY else 'No'}")
+if stripe.api_key:
+    print(f"DEBUG: Key starts with: {stripe.api_key[:20]}...")
+else:
+    print("DEBUG: No Stripe key found in environment")
 
 class StripeService:
     @staticmethod
