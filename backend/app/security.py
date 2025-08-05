@@ -19,6 +19,12 @@ import threading
 
 load_dotenv()
 
+def create_security_hash(amount: int, email: str) -> str:
+    """Create a security hash for transaction integrity"""
+    security_salt = os.getenv("SECURITY_SALT", "default_salt")
+    hash_data = f"{amount}{email}{datetime.utcnow().isoformat()}{security_salt}"
+    return hashlib.sha256(hash_data.encode()).hexdigest()
+
 class PCISecurePaymentGateway:
     """
     PCI-Compliant Payment Security Class

@@ -15,22 +15,43 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
   const elements = useElements();
   const [loading, setLoading] = useState(false);
   const [clientSecret, setClientSecret] = useState('');
+  const [userInfo, setUserInfo] = useState({
+    full_name: '',
+    email: '',
+    phone: ''
+  });
 
-  useEffect(() => {
-    // Create PaymentIntent as soon as the page loads
-    createPaymentIntent();
-  }, [amount]);
+  const handleUserInfoChange = (field, value) => {
+    setUserInfo(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
 
   const createPaymentIntent = async () => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/create-payment-intent`, {
-        amount: amount,
-        currency: 'usd'
+      // Validate user information
+      if (!userInfo.full_name || !userInfo.email || !userInfo.phone) {
+        onError('Please fill in all required fields');
+        return;
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: 'usd',
+        full_name: userInfo.full_name,
+        email: userInfo.email,
+        phone: userInfo.phone
       });
-      setClientSecret(response.data.client_secret);
+
+      if (response.data.success) {
+        setClientSecret(response.data.client_secret);
+      } else {
+        onError('Failed to initialize payment');
+      }
     } catch (error) {
       console.error('Error creating payment intent:', error);
-      onError('Failed to initialize payment');
+      onError(error.response?.data?.detail || 'Failed to initialize payment');
     }
   };
 
@@ -45,6 +66,11 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
     const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
       payment_method: {
         card: elements.getElement(CardElement),
+        billing_details: {
+          name: userInfo.full_name,
+          email: userInfo.email,
+          phone: userInfo.phone
+        }
       }
     });
 
@@ -54,20 +80,24 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
       setLoading(false);
     } else {
       if (paymentIntent.status === 'succeeded') {
-        // Process the successful payment on your backend
+        // Get transaction details from our backend
         try {
-          const response = await axios.post(`${API_BASE_URL}/process-real-payment`, {
-            payment_intent_id: paymentIntent.id
-          });
+          const response = await axios.get(`${API_BASE_URL}/stripe/transactions/${paymentIntent.metadata.transaction_id || 'unknown'}`);
           
           onSuccess({
-            transaction_id: response.data.transaction_id,
-            amount: response.data.amount,
-            status: response.data.status
+            transaction_id: response.data.transaction?.transaction_id || paymentIntent.id,
+            amount: response.data.transaction?.amount || amount,
+            status: response.data.transaction?.status || 'completed',
+            stripe_payment_intent_id: paymentIntent.id
           });
         } catch (error) {
-          console.error('Error processing payment:', error);
-          onError('Payment succeeded but failed to record transaction');
+          console.error('Error getting transaction details:', error);
+          onSuccess({
+            transaction_id: paymentIntent.id,
+            amount: amount,
+            status: 'completed',
+            stripe_payment_intent_id: paymentIntent.id
+          });
         }
       }
       setLoading(false);
@@ -91,6 +121,40 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
 
   return (
     <form onSubmit={handleSubmit} className="real-payment-form">
+      {/* User Information Fields */}
+      <div className="mb-3">
+        <label className="form-label">Full Name *</label>
+        <input
+          type="text"
+          className="form-control"
+          value={userInfo.full_name}
+          onChange={(e) => handleUserInfoChange('full_name', e.target.value)}
+          required
+        />
+      </div>
+      
+      <div className="mb-3">
+        <label className="form-label">Email *</label>
+        <input
+          type="email"
+          className="form-control"
+          value={userInfo.email}
+          onChange={(e) => handleUserInfoChange('email', e.target.value)}
+          required
+        />
+      </div>
+      
+      <div className="mb-3">
+        <label className="form-label">Phone *</label>
+        <input
+          type="tel"
+          className="form-control"
+          value={userInfo.phone}
+          onChange={(e) => handleUserInfoChange('phone', e.target.value)}
+          required
+        />
+      </div>
+
       <div className="mb-3">
         <label className="form-label">Card Details</label>
         <div className="card-element-container">
@@ -100,8 +164,9 @@ const RealPaymentForm = ({ amount, onSuccess, onError }) => {
       
       <button
         type="submit"
-        disabled={!stripe || loading}
+        disabled={!stripe || loading || !clientSecret}
         className="btn btn-pay text-white w-100"
+        onClick={createPaymentIntent}
       >
         {loading ? (
           <>
