@@ -1,0 +1,65 @@
+/* Layout Styles */
+.payment-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.payment-card {
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+  padding: 2rem;
+  width: 100%;
+  max-width: 600px;
+}
+
+.payment-header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.payment-header h1 {
+  color: #333;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.payment-header p {
+  color: #666;
+  margin: 0;
+}
+
+/* Payment Steps */
+.payment-step {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(10px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 576px) {
+  .payment-container {
+    padding: 10px;
+  }
+  
+  .payment-card {
+    padding: 1.5rem;
+    margin: 10px;
+  }
+  
+  .payment-header h1 {
+    font-size: 1.75rem;
+  }
+} 

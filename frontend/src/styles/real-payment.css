@@ -1,0 +1,69 @@
+/* Real Payment Form Styles */
+.real-payment-form {
+  width: 100%;
+}
+
+.card-element-container {
+  border: 2px solid #e9ecef;
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: white;
+  transition: all 0.3s ease;
+}
+
+.card-element-container:focus-within {
+  border-color: #667eea;
+  box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+/* Stripe Card Element Customization */
+.StripeElement {
+  padding: 0.5rem 0;
+}
+
+.StripeElement--focus {
+  outline: none;
+}
+
+.StripeElement--invalid {
+  border-color: #f44336;
+}
+
+/* Real Payment Button */
+.real-payment-form .btn-pay {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 2rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.3s ease;
+  color: white;
+  width: 100%;
+}
+
+.real-payment-form .btn-pay:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.real-payment-form .btn-pay:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Test Card Info */
+.real-payment-form .text-muted {
+  font-size: 0.875rem;
+  color: #6c757d;
+  margin-top: 1rem;
+}
+
+/* Responsive Design */
+@media (max-width: 576px) {
+  .real-payment-form .btn-pay {
+    padding: 0.6rem 1.5rem;
+    font-size: 0.9rem;
+  }
+} 

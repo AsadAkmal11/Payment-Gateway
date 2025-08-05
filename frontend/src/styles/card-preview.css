@@ -1,0 +1,62 @@
+/* Card Preview Styles */
+.card-preview {
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: center;
+}
+
+.card-front {
+  width: 100%;
+  max-width: 350px;
+  height: 200px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 15px;
+  padding: 1.5rem;
+  color: white;
+  position: relative;
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+}
+
+.card-type {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 2rem;
+  opacity: 0.9;
+}
+
+.card-number {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 2px;
+  margin-bottom: 2rem;
+  font-family: 'Courier New', monospace;
+}
+
+.card-details {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 0.875rem;
+}
+
+.cardholder {
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.expiry {
+  font-weight: 500;
+}
+
+/* Responsive Card Preview */
+@media (max-width: 576px) {
+  .card-front {
+    height: 180px;
+    padding: 1rem;
+  }
+  
+  .card-number {
+    font-size: 1rem;
+    letter-spacing: 1px;
+  }
+} 

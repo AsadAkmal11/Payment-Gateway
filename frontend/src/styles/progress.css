@@ -1,0 +1,47 @@
+/* Progress Bar Styles */
+.progress-bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+  position: relative;
+}
+
+.progress-bar::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #e9ecef;
+  transform: translateY(-50%);
+  z-index: 1;
+}
+
+.progress-step {
+  position: relative;
+  z-index: 2;
+  background: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #6c757d;
+  border: 2px solid #e9ecef;
+  transition: all 0.3s ease;
+}
+
+.progress-step.active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+/* Responsive Progress Bar */
+@media (max-width: 576px) {
+  .progress-step {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+} 

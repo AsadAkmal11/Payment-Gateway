@@ -1,0 +1,19 @@
+/* Main CSS File - Imports all component styles */
+
+/* Global Styles */
+@import './global.css';
+
+/* Layout Styles */
+@import './layout.css';
+
+/* Progress Bar Styles */
+@import './progress.css';
+
+/* Payment Methods Styles */
+@import './payment-methods.css';
+
+/* Card Preview Styles */
+@import './card-preview.css';
+
+/* Real Payment Form Styles */
+@import './real-payment.css'; 
