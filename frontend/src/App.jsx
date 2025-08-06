@@ -9,7 +9,7 @@ const API_BASE_URL = 'http://localhost:8000';
 
 // Alternative PaymentForm using individual elements (commented out for now)
 /*
-function IndividualCardPaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep }) {
+function IndividualCardPaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep, loading }) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -120,15 +120,15 @@ function IndividualCardPaymentForm({ formData, setFormData, paymentData, setPaym
           </div>
         </div>
       </div>
-      <button type="submit" className="btn btn-pay text-white" disabled={setLoading}>
-        PAY NOW
+      <button type="submit" className="btn btn-pay text-white" disabled={loading}>
+        {loading ? 'Processing...' : 'PAY NOW'}
       </button>
     </form>
   );
 }
 */
 
-function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep }) {
+function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMessage, setMessageType, setLoading, setStep, loading }) {
   const stripe = useStripe();
   const elements = useElements();
 
@@ -156,8 +156,20 @@ function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMe
     e.preventDefault();
     setLoading(true);
     setMessage('');
+    
+    // Add timeout to prevent stuck loading state
+    const timeoutId = setTimeout(() => {
+      console.error('Payment process timed out');
+      setLoading(false);
+      setMessageType('error');
+      setMessage('Payment process timed out. Please try again.');
+    }, 30000); // 30 second timeout
+    
     try {
+      console.log('Starting payment process...');
+      
       // 1. Create payment intent
+      console.log('Creating payment intent...');
       const intentRes = await axios.post(`${API_BASE_URL}/stripe/create-payment-intent`, {
         amount: Math.round(formData.amount * 100),
         currency: 'usd',
@@ -165,9 +177,11 @@ function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMe
         email: formData.email,
         phone: formData.phone
       });
+      console.log('Payment intent created:', intentRes.data);
       const { client_secret, payment_intent_id } = intentRes.data;
 
       // 2. Create payment method with Stripe.js
+      console.log('Creating payment method...');
       const cardElement = elements.getElement(CardElement);
       const { error: pmError, paymentMethod } = await stripe.createPaymentMethod({
         type: 'card',
@@ -179,43 +193,76 @@ function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMe
         }
       });
       if (pmError) {
+        console.error('Payment method error:', pmError);
         setMessageType('error');
         setMessage(pmError.message);
+        clearTimeout(timeoutId);
         setLoading(false);
         return;
       }
+      console.log('Payment method created:', paymentMethod.id);
 
       // 3. Confirm card payment with Stripe.js
+      console.log('Confirming payment...');
       const { error: confirmError, paymentIntent } = await stripe.confirmCardPayment(client_secret, {
         payment_method: paymentMethod.id
       });
       if (confirmError) {
+        console.error('Payment confirmation error:', confirmError);
         setMessageType('error');
         setMessage(confirmError.message);
+        clearTimeout(timeoutId);
         setLoading(false);
         return;
       }
-      if (paymentIntent.status !== 'succeeded') {
+      console.log('Payment confirmed, status:', paymentIntent.status);
+      
+      // 4. Check payment status
+      if (paymentIntent.status === 'succeeded') {
+        console.log('Payment succeeded, notifying backend...');
+        // Payment succeeded, notify backend
+        try {
+          const backendRes = await axios.post(`${API_BASE_URL}/stripe/confirm-payment`, {
+            payment_intent_id,
+            payment_method_id: paymentMethod.id
+          });
+          console.log('Backend confirmation successful:', backendRes.data);
+          setMessageType('success');
+          setMessage('Payment successful!');
+          setFormData({ full_name: '', email: '', phone: '', amount: '' });
+          setPaymentData({ payment_method: 'visa', card_number: '', expiry_month: '', expiry_year: '', cvv: '', cardholder_name: '' });
+          setStep(1);
+        } catch (backendError) {
+          console.error('Backend confirmation error:', backendError);
+          // If backend fails but payment succeeded, still show success
+          if (backendError.response?.status === 400 && 
+              backendError.response?.data?.detail?.includes('already succeeded')) {
+            setMessageType('success');
+            setMessage('Payment successful! (Transaction already processed)');
+            setFormData({ full_name: '', email: '', phone: '', amount: '' });
+            setPaymentData({ payment_method: 'visa', card_number: '', expiry_month: '', expiry_year: '', cvv: '', cardholder_name: '' });
+            setStep(1);
+          } else {
+            setMessageType('error');
+            setMessage('Payment succeeded but there was an issue with transaction recording. Please contact support.');
+          }
+        }
+      } else if (paymentIntent.status === 'requires_action') {
+        console.log('Payment requires action');
         setMessageType('error');
-        setMessage('Payment was not successful.');
-        setLoading(false);
-        return;
+        setMessage('Payment requires additional authentication. Please try again.');
+      } else {
+        console.log('Payment not successful, status:', paymentIntent.status);
+        setMessageType('error');
+        setMessage(`Payment was not successful. Status: ${paymentIntent.status}`);
       }
-
-      // 4. Notify backend to update transaction status
-      await axios.post(`${API_BASE_URL}/stripe/confirm-payment`, {
-        payment_intent_id,
-        payment_method_id: paymentMethod.id
-      });
-      setMessageType('success');
-      setMessage('Payment successful!');
-      setFormData({ full_name: '', email: '', phone: '', amount: '' });
-      setPaymentData({ payment_method: 'visa', card_number: '', expiry_month: '', expiry_year: '', cvv: '', cardholder_name: '' });
-      setStep(1);
     } catch (error) {
+      console.error('Payment process error:', error);
       setMessageType('error');
       setMessage(error.response?.data?.detail || 'Payment failed. Please try again.');
     } finally {
+      console.log('Payment process completed, setting loading to false');
+      clearTimeout(timeoutId);
       setLoading(false);
     }
   };
@@ -227,8 +274,8 @@ function PaymentForm({ formData, setFormData, paymentData, setPaymentData, setMe
         <label className="form-label">Card Details</label>
         <CardElement options={cardElementOptions} />
       </div>
-      <button type="submit" className="btn btn-pay text-white" disabled={setLoading}>
-        PAY NOW
+      <button type="submit" className="btn btn-pay text-white" disabled={loading}>
+        {loading ? 'Processing...' : 'PAY NOW'}
       </button>
     </form>
   );
@@ -612,6 +659,7 @@ function App() {
                 setMessageType={setMessageType}
                 setLoading={setLoading}
                 setStep={setStep}
+                loading={loading}
               />
             </Elements>
           </div>

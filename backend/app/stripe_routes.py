@@ -139,6 +139,27 @@ async def confirm_payment(
         if not rate_limit_allowed:
             raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Try again in {rate_limit_info['retry_after']} seconds")
         
+        # First, check if transaction already exists (payment might have been confirmed before)
+        existing_transaction = db.query(Transaction).filter(
+            Transaction.stripe_payment_intent_id == request.payment_intent_id
+        ).first()
+        
+        if existing_transaction and existing_transaction.status == TransactionStatus.COMPLETED:
+            # Payment already processed successfully
+            payment_security.log_security_event("payment_already_confirmed", {
+                "ip_address": client_ip,
+                "payment_intent_id": request.payment_intent_id,
+                "transaction_id": existing_transaction.transaction_id
+            })
+            return {
+                "success": True,
+                "status": "succeeded",
+                "transaction_id": existing_transaction.transaction_id,
+                "amount": existing_transaction.amount,
+                "currency": existing_transaction.currency,
+                "message": "Payment already confirmed successfully"
+            }
+        
         # Confirm payment with Stripe
         stripe_result = StripeService.confirm_payment_intent(
             payment_intent_id=request.payment_intent_id,
@@ -146,6 +167,86 @@ async def confirm_payment(
         )
         
         if not stripe_result['success']:
+            # Check if the error is because payment is already confirmed
+            if "already succeeded" in stripe_result['error']:
+                # Payment succeeded but we need to check if we have the transaction
+                stripe_status_result = StripeService.retrieve_payment_intent(request.payment_intent_id)
+                if stripe_status_result['success']:
+                    payment_intent = stripe_status_result['payment_intent']
+                    if payment_intent.status == 'succeeded':
+                        # Payment succeeded, check if we need to save it
+                        if not existing_transaction:
+                            # Extract metadata and save transaction
+                            metadata = payment_intent.metadata or {}
+                            full_name = metadata.get('full_name', '')
+                            email = metadata.get('email', '')
+                            phone = metadata.get('phone', '')
+                            amount = payment_intent.amount / 100
+                            currency = payment_intent.currency.upper()
+                            
+                            # 🔒 SECURITY STEP 3: Generate Security Hash
+                            security_hash = payment_security.generate_security_hash({
+                                "amount": amount,
+                                "currency": currency,
+                                "email": email,
+                                "payment_intent_id": payment_intent.id
+                            })
+                            
+                            transaction = Transaction(
+                                full_name=full_name,
+                                email=email,
+                                phone=phone,
+                                amount=amount,
+                                currency=currency,
+                                payment_method=PaymentMethod.STRIPE,
+                                status=TransactionStatus.COMPLETED,
+                                stripe_payment_intent_id=payment_intent.id,
+                                stripe_client_secret=payment_intent.client_secret,
+                                stripe_payment_method_id=request.payment_method_id,
+                                security_hash=security_hash,
+                                ip_address=client_ip,
+                                user_agent=client_request.headers.get("user-agent") if client_request else None,
+                                gateway_response=json.dumps({
+                                    "status": "succeeded",
+                                    "payment_intent_id": payment_intent.id,
+                                    "amount": payment_intent.amount,
+                                    "currency": payment_intent.currency,
+                                    "risk_score": metadata.get('risk_score', 0),
+                                    "risk_factors": metadata.get('risk_factors', '')
+                                })
+                            )
+                            db.add(transaction)
+                            db.commit()
+                            db.refresh(transaction)
+                            
+                            # 🔒 SECURITY STEP 4: Log Successful Payment
+                            payment_security.log_security_event("payment_successful", {
+                                "ip_address": client_ip,
+                                "transaction_id": transaction.transaction_id,
+                                "payment_intent_id": payment_intent.id,
+                                "amount": amount,
+                                "email": email
+                            })
+                            
+                            return {
+                                "success": True,
+                                "status": payment_intent.status,
+                                "transaction_id": transaction.transaction_id,
+                                "amount": payment_intent.amount,
+                                "currency": payment_intent.currency,
+                                "message": "Payment confirmed successfully"
+                            }
+                        else:
+                            # Transaction already exists
+                            return {
+                                "success": True,
+                                "status": "succeeded",
+                                "transaction_id": existing_transaction.transaction_id,
+                                "amount": existing_transaction.amount,
+                                "currency": existing_transaction.currency,
+                                "message": "Payment already confirmed successfully"
+                            }
+            
             # 🔒 SECURITY STEP 2: Log Failed Payment
             payment_security.log_security_event("payment_failed", {
                 "ip_address": client_ip,
@@ -430,3 +531,48 @@ async def validate_card(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Card validation failed: {str(e)}") 
+
+@router.get("/security-status")
+async def get_security_status():
+    """
+    Get current security status and recent events
+    """
+    try:
+        # Get rate limiting info
+        rate_limit_info = {
+            "card_validation": {
+                "limit": payment_security.rate_limits["card_validation"]["requests"],
+                "window": payment_security.rate_limits["card_validation"]["window"]
+            },
+            "payment_processing": {
+                "limit": payment_security.rate_limits["payment_processing"]["requests"],
+                "window": payment_security.rate_limits["payment_processing"]["window"]
+            }
+        }
+        
+        # Get security configuration
+        security_config = {
+            "hmac_secret_configured": bool(payment_security.hmac_secret),
+            "security_salt_configured": bool(payment_security.security_salt),
+            "suspicious_domains_count": len(payment_security.suspicious_domains),
+            "risk_weights": payment_security.risk_weights
+        }
+        
+        return {
+            "success": True,
+            "security_status": {
+                "rate_limiting": rate_limit_info,
+                "configuration": security_config,
+                "features_active": {
+                    "rate_limiting": True,
+                    "input_sanitization": True,
+                    "risk_assessment": True,
+                    "security_logging": True,
+                    "tls_validation": True,
+                    "card_validation": True
+                }
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get security status: {str(e)}") 
